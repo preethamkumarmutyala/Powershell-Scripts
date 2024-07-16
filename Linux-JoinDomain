@@ -1,0 +1,54 @@
+
+Follow the below steps:
+
+#This command will let you know which Linux OS you are using 
+cat /etc/os-release  
+
+#First, install the necessary packages
+sudo dnf install realmd sssd adcli krb5-workstation samba-common-tools oddjob oddjob-mkhomedir 
+
+#Use the realm command to discover the domain you want to join
+realm discover example.com 
+
+#uUse the realm command to join the domain. You will need the credentials of a user who has permission to join computers to the domain
+sudo realm join --user=Administrator example.com 
+ 
+#After joining the domain, configure SSSD for authentication
+sudo nano /etc/sssd/sssd.conf 
+
+
+#Add the following configuration (modify example.com to match your domain):
+
+[sssd]
+services = nss, pam
+config_file_version = 2
+domains = example.com
+
+[domain/example.com]
+id_provider = ad
+access_provider = ad
+
+#Set the correct permissions for the sssd.conf file:
+sudo chmod 600 /etc/sssd/sssd.conf
+
+
+#Start the SSSD service and enable it to start on boot
+sudo systemctl start sssd
+sudo systemctl enable sssd
+
+#Ensure that the PAM and NSS systems are configured to use SSSD for authentication:
+sudo authconfig --enablesssd --enablesssdauth --enablemkhomedir --update
+
+#Verify that the machine has successfully joined the domain and that you can authenticate against it:
+id your-domain-user@example.com
+
+#Add a line like this (replace example.com with your domain and domain-users with the appropriate group):
+%domain-users@example.com ALL=(ALL) ALL
+
+
+
+
+
+
+
+
