@@ -1,111 +1,66 @@
-# Function to install PSWindowsUpdate module if not already installed
-function Install-PSWindowsUpdateModule {
-    try {
-        if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
-            Write-Host "PSWindowsUpdate module is not installed. Installing now..." -ForegroundColor Yellow
-
-            # Register PSGallery if not already registered
-            if (-not (Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue)) {
-                Write-Host "PSGallery repository is not registered. Registering now..." -ForegroundColor Yellow
-                Register-PSRepository -Default
-            }
-
-            # Ensure NuGet provider is available
-            if (-not (Get-PackageSource -Name 'nuget' -ErrorAction SilentlyContinue)) {
-                Write-Host "NuGet provider is not installed. Installing now..." -ForegroundColor Yellow
-                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-            }
-
-            Install-Module -Name PSWindowsUpdate -Force -Scope CurrentUser
-            Write-Host "PSWindowsUpdate module installed." -ForegroundColor Green
-        } else {
-            Write-Host "PSWindowsUpdate module is already installed." -ForegroundColor Green
-        }
-    } catch {
-        Write-Host "Error installing PSWindowsUpdate module: $_" -ForegroundColor Red
-    }
-}
-
-# Function to turn off the Windows Firewall for all profiles
-function Disable-Firewall {
+# Function to turn off the Windows Firewall
+function Turn-OffFirewall {
     try {
         Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-        Write-Host "Firewall is OFF" -ForegroundColor Green -BackgroundColor Black
+        Write-Host "Firewall turned off." -ForegroundColor Green
     } catch {
-        Write-Host "Error turning off the firewall: $_" -ForegroundColor Red
+        Write-Host "Error turning off firewall: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
 # Function to enable Remote Desktop
 function Enable-RemoteDesktop {
     try {
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\' -Name "fDenyTSConnections" -Value 0
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\' -Name "UserAuthentication" -Value 0
-        Write-Host "Remote Desktop is enabled" -ForegroundColor Green -BackgroundColor Black
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Write-Host "Remote Desktop enabled." -ForegroundColor Green
     } catch {
         Write-Host "Error enabling Remote Desktop: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
 # Function to update Windows
 function Update-Windows {
     try {
-        Install-PSWindowsUpdateModule
+        # Install PSWindowsUpdate module if not installed
+        if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+            Write-Host "PSWindowsUpdate module is not installed. Installing now..."
+            Install-Module -Name PSWindowsUpdate -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        }
+
         Import-Module PSWindowsUpdate
 
-        Write-Host "Checking for Windows updates..." -ForegroundColor Yellow
-
-        # Check for updates
-        $updates = Get-WindowsUpdate -AcceptAll -IgnoreReboot
-
-        if ($updates) {
-            Write-Host "Updates found:" -ForegroundColor Cyan
-            $updates | Format-Table -Property Title, KB, Size
-
-            Write-Host "Downloading and installing updates..." -ForegroundColor Yellow
-
-            # Install updates
-            Install-WindowsUpdate -AcceptAll -IgnoreReboot -Verbose
-
-            Write-Host "Updates installed." -ForegroundColor Green
-            
-            # Prompt user to reboot
-            $reboot = Read-Host "Do you want to reboot the system now? (Y/N)"
-            if ($reboot -eq 'Y') {
-                Write-Host "Rebooting the system..." -ForegroundColor Yellow
-                Restart-Computer -Force
-            } else {
-                Write-Host "Please reboot the system later to complete the update process." -ForegroundColor Yellow
-            }
-        } else {
-            Write-Host "No updates available." -ForegroundColor Green
-        }
+        # Check for Windows updates
+        Write-Host "Checking for Windows updates..."
+        Get-WindowsUpdate -AcceptAll -AutoReboot
+        Write-Host "Windows update completed." -ForegroundColor Green
     } catch {
         Write-Host "Error updating Windows: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
 # Function to change the computer name
 function Change-ComputerName {
     try {
         $newName = Read-Host "Enter the new computer name"
-        Rename-Computer -NewName $newName -Force
-        Write-Host "Computer name changed to $newName." -ForegroundColor Green -BackgroundColor Black
-
-        # Prompt user to reboot
-        $reboot = Read-Host "Do you want to reboot the system now to apply the name change? (Y/N)"
+        Rename-Computer -NewName $newName
+        Write-Host "Computer name changed to $newName." -ForegroundColor Green
+        $reboot = Read-Host "Do you want to reboot the computer now? (Y/N)"
         if ($reboot -eq 'Y') {
-            Write-Host "Rebooting the system..." -ForegroundColor Yellow
             Restart-Computer -Force
         } else {
-            Write-Host "Please reboot the system later to apply the name change." -ForegroundColor Yellow
+            Write-Host "You need to manually restart the computer for the changes to take effect." -ForegroundColor Yellow
         }
     } catch {
         Write-Host "Error changing computer name: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
-# Function to list, select, rename, and configure network adapters
+# Function to manage network adapters
 function Manage-NetworkAdapters {
     try {
         # List all network adapters
@@ -129,98 +84,88 @@ function Manage-NetworkAdapters {
 
         Write-Host "Selected adapter: $($selectedAdapter.Name)" -ForegroundColor Green
 
-        # Rename the adapter
-        $newName = Read-Host "Enter the new name for the adapter"
-        Rename-NetAdapter -Name $selectedAdapter.Name -NewName $newName -Confirm:$false
-        Write-Host "Adapter renamed to $newName." -ForegroundColor Green
-
         # Configure IP settings
         $ipConfig = Read-Host "Set IP configuration - DHCP or Static? (Enter 'DHCP' or 'Static')"
         if ($ipConfig -eq 'DHCP') {
-            Set-NetIPInterface -InterfaceAlias $newName -Dhcp Enabled
+            # Disable the adapter
+            Disable-NetAdapter -Name $selectedAdapter.Name -Confirm:$false
+            Start-Sleep -Seconds 5  # Wait for 5 seconds to ensure the adapter is disabled
+            
+            # Set adapter to DHCP
+            Set-NetIPInterface -InterfaceAlias $selectedAdapter.Name -Dhcp Enabled
+            # Remove existing static IP settings
+            Get-NetIPAddress -InterfaceAlias $selectedAdapter.Name | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
             Write-Host "Adapter set to DHCP." -ForegroundColor Green
         } elseif ($ipConfig -eq 'Static') {
             $ipAddress = Read-Host "Enter the static IP address"
-            $subnetMask = Read-Host "Enter the subnet mask"
+            $prefixLength = Read-Host "Enter the subnet prefix length (e.g., 24)"
             $gateway = Read-Host "Enter the default gateway"
             $dnsServers = Read-Host "Enter DNS servers (comma-separated)"
 
+            # Disable the adapter
+            Disable-NetAdapter -Name $selectedAdapter.Name -Confirm:$false
+            Start-Sleep -Seconds 5  # Wait for 5 seconds to ensure the adapter is disabled
+
             # Remove existing IP configurations
-            Remove-NetIPAddress -InterfaceAlias $newName -Confirm:$false
+            Get-NetIPAddress -InterfaceAlias $selectedAdapter.Name | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
 
             # Add static IP configuration
-            New-NetIPAddress -InterfaceAlias $newName -IPAddress $ipAddress -PrefixLength $subnetMask -DefaultGateway $gateway
-            Set-DnsClientServerAddress -InterfaceAlias $newName -ServerAddresses $dnsServers.Split(',')
-
+            New-NetIPAddress -InterfaceAlias $selectedAdapter.Name -IPAddress $ipAddress -PrefixLength $prefixLength -DefaultGateway $gateway
+            Set-DnsClientServerAddress -InterfaceAlias $selectedAdapter.Name -ServerAddresses $dnsServers.Split(',')
             Write-Host "Adapter set to Static IP with address $ipAddress." -ForegroundColor Green
         } else {
             Write-Host "Invalid option. Please enter 'DHCP' or 'Static'." -ForegroundColor Red
+            return
         }
+
+        # Re-enable the adapter
+        Enable-NetAdapter -Name $selectedAdapter.Name -Confirm:$false
+        Write-Host "Adapter re-enabled." -ForegroundColor Green
     } catch {
         Write-Host "Error managing network adapters: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
 # Function to change the time zone
 function Change-TimeZone {
     try {
-        Set-TimeZone -Id "India Standard Time"
-        Write-Host "Time zone changed to (UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi." -ForegroundColor Green -BackgroundColor Black
+        $timezone = 'India Standard Time'
+        tzutil /s $timezone
+        Write-Host "Time zone changed to $timezone." -ForegroundColor Green
     } catch {
         Write-Host "Error changing time zone: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
 # Function to change the Administrator password
 function Change-AdministratorPassword {
     try {
-        $newPassword = Read-Host -Prompt "Enter the new password for Administrator" -AsSecureString
-        $adminAccount = Get-LocalUser -Name "Administrator"
-        $adminAccount | Set-LocalUser -Password $newPassword
-        Write-Host "Administrator password changed." -ForegroundColor Green -BackgroundColor Black
+        # Prompt for the new password as a secure string
+        $newPassword = Read-Host "Enter the new password for Administrator" -AsSecureString
+
+        # Create a new local user object with the Administrator username
+        $username = "Administrator"
+
+        # Get the local user account
+        $user = Get-LocalUser -Name $username
+
+        if ($user) {
+            # Change the Administrator password
+            $user | Set-LocalUser -Password $newPassword
+            Write-Host "Administrator password changed successfully." -ForegroundColor Green
+        } else {
+            Write-Host "Administrator account not found." -ForegroundColor Red
+        }
     } catch {
         Write-Host "Error changing Administrator password: $_" -ForegroundColor Red
     }
+    Read-Host "Press Enter to return to the main menu..."
 }
 
-# Function to execute all tasks one by one
-function Execute-AllTasks {
-    Disable-Firewall
-    if ($? -eq $false) { return }
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-
-    Enable-RemoteDesktop
-    if ($? -eq $false) { return }
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-
-    Change-ComputerName
-    if ($? -eq $false) { return }
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-
-    Manage-NetworkAdapters
-    if ($? -eq $false) { return }
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-
-    Change-TimeZone
-    if ($? -eq $false) { return }
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-
-    Change-AdministratorPassword
-    if ($? -eq $false) { return }
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-
-    Update-Windows
-}
-
-# Main menu loop
-while ($true) {
-    Write-Host ""
+# Main script loop
+do {
     Write-Host "Select an option to execute:"
     Write-Host "  1: Turn off the Firewall"
     Write-Host "  2: Enable Remote Desktop"
@@ -234,18 +179,23 @@ while ($true) {
     $choice = Read-Host "Enter your choice (1, 2, 3, 4, 5, 6, 7, 8, or 9)"
 
     switch ($choice) {
-        1 { Disable-Firewall }
+        1 { Turn-OffFirewall }
         2 { Enable-RemoteDesktop }
         3 { Update-Windows }
         4 { Change-ComputerName }
         5 { Manage-NetworkAdapters }
         6 { Change-TimeZone }
         7 { Change-AdministratorPassword }
-        8 { Execute-AllTasks }
-        9 { exit }
-        default { Write-Host "Invalid choice. Please select a valid option." -ForegroundColor Red }
+        8 {
+            Turn-OffFirewall
+            Enable-RemoteDesktop
+            Update-Windows
+            Change-ComputerName
+            Manage-NetworkAdapters
+            Change-TimeZone
+            Change-AdministratorPassword
+        }
+        9 { Write-Host "Exiting..." -ForegroundColor Cyan; break }
+        default { Write-Host "Invalid choice. Please enter a number between 1 and 9." -ForegroundColor Red }
     }
-
-    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
-    [void][System.Console]::ReadLine()
-}
+} while ($choice -ne 9)
