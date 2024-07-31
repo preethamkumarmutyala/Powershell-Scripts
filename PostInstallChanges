@@ -3,9 +3,15 @@ function Install-PSWindowsUpdateModule {
     try {
         if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
             Write-Host "PSWindowsUpdate module is not installed. Installing now..." -ForegroundColor Yellow
-            
+
+            # Register PSGallery if not already registered
+            if (-not (Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue)) {
+                Write-Host "PSGallery repository is not registered. Registering now..." -ForegroundColor Yellow
+                Register-PSRepository -Default
+            }
+
             # Ensure NuGet provider is available
-            if (-not (Get-PackageSource -Name 'nuget')) {
+            if (-not (Get-PackageSource -Name 'nuget' -ErrorAction SilentlyContinue)) {
                 Write-Host "NuGet provider is not installed. Installing now..." -ForegroundColor Yellow
                 Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
             }
@@ -155,101 +161,91 @@ function Manage-NetworkAdapters {
     }
 }
 
-# Function to change the system time zone to India Standard Time
+# Function to change the time zone
 function Change-TimeZone {
     try {
-        $timeZone = 'India Standard Time'
-        tzutil /s "$timeZone"
-        Write-Host "Time zone changed to $timeZone." -ForegroundColor Green
+        Set-TimeZone -Id "India Standard Time"
+        Write-Host "Time zone changed to (UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi." -ForegroundColor Green -BackgroundColor Black
     } catch {
         Write-Host "Error changing time zone: $_" -ForegroundColor Red
     }
 }
 
 # Function to change the Administrator password
-function Change-AdminPassword {
+function Change-AdministratorPassword {
     try {
-        $adminAccount = [adsi]"WinNT://./Administrator,user"
-        $newPasswordSecure = Read-Host "Enter the new password for Administrator" -AsSecureString
-        $newPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($newPasswordSecure))
-        $adminAccount.psbase.Invoke("SetPassword", $newPassword)
-        Write-Host "Administrator password changed successfully." -ForegroundColor Green
+        $newPassword = Read-Host -Prompt "Enter the new password for Administrator" -AsSecureString
+        $adminAccount = Get-LocalUser -Name "Administrator"
+        $adminAccount | Set-LocalUser -Password $newPassword
+        Write-Host "Administrator password changed." -ForegroundColor Green -BackgroundColor Black
     } catch {
         Write-Host "Error changing Administrator password: $_" -ForegroundColor Red
     }
 }
 
-# Function to display the menu with green, bold-like text
-function Show-Menu {
-    Clear-Host
-    $padding = " " * 5
-    Write-Host "$padding Select an option to execute:" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 1: Turn off the Firewall" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 2: Enable Remote Desktop" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 3: Update Windows" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 4: Change Computer Name" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 5: Manage Network Adapters" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 6: Change Time Zone to (UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 7: Change Administrator Password" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 8: All of the Above" -ForegroundColor Green -BackgroundColor Black
-    Write-Host "$padding 9: Exit" -ForegroundColor Green -BackgroundColor Black
-}
-
-# Function to execute all tasks sequentially
+# Function to execute all tasks one by one
 function Execute-AllTasks {
     Disable-Firewall
-    Pause
+    if ($? -eq $false) { return }
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+
     Enable-RemoteDesktop
-    Pause
+    if ($? -eq $false) { return }
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+
     Change-ComputerName
-    Pause
+    if ($? -eq $false) { return }
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+
     Manage-NetworkAdapters
-    Pause
+    if ($? -eq $false) { return }
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+
     Change-TimeZone
-    Pause
-    Change-AdminPassword
-    Pause
+    if ($? -eq $false) { return }
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+
+    Change-AdministratorPassword
+    if ($? -eq $false) { return }
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+
     Update-Windows
 }
 
-# Main script execution
-do {
-    Show-Menu
+# Main menu loop
+while ($true) {
+    Write-Host ""
+    Write-Host "Select an option to execute:"
+    Write-Host "  1: Turn off the Firewall"
+    Write-Host "  2: Enable Remote Desktop"
+    Write-Host "  3: Update Windows"
+    Write-Host "  4: Change Computer Name"
+    Write-Host "  5: Manage Network Adapters"
+    Write-Host "  6: Change Time Zone to (UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi"
+    Write-Host "  7: Change Administrator Password"
+    Write-Host "  8: All of the Above"
+    Write-Host "  9: Exit"
     $choice = Read-Host "Enter your choice (1, 2, 3, 4, 5, 6, 7, 8, or 9)"
+
     switch ($choice) {
-        '1' {
-            Disable-Firewall
-        }
-        '2' {
-            Enable-RemoteDesktop
-        }
-        '3' {
-            Update-Windows
-        }
-        '4' {
-            Change-ComputerName
-        }
-        '5' {
-            Manage-NetworkAdapters
-        }
-        '6' {
-            Change-TimeZone
-        }
-        '7' {
-            Change-AdminPassword
-        }
-        '8' {
-            Execute-AllTasks
-        }
-        '9' {
-            Write-Host "Exiting..." -ForegroundColor Yellow
-        }
-        default {
-            Write-Host "Invalid choice. Please select a valid option (1-9)." -ForegroundColor Red
-        }
+        1 { Disable-Firewall }
+        2 { Enable-RemoteDesktop }
+        3 { Update-Windows }
+        4 { Change-ComputerName }
+        5 { Manage-NetworkAdapters }
+        6 { Change-TimeZone }
+        7 { Change-AdministratorPassword }
+        8 { Execute-AllTasks }
+        9 { exit }
+        default { Write-Host "Invalid choice. Please select a valid option." -ForegroundColor Red }
     }
-    
-    if ($choice -ne '9') {
-        Pause
-    }
-} while ($choice -ne '9')
+
+    Write-Host "Press Enter to continue..." -ForegroundColor Cyan
+    [void][System.Console]::ReadLine()
+}
